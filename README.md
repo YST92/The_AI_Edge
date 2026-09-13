@@ -55,7 +55,7 @@ Episodes and audio are written to `DATA_DIR` (`/data`), which should be a persis
 ## Running it
 
 ```bash
-docker run -p 8080:8080 --env-file .env -v aiedge-data:/data ghcr.io/afasgroep/the_ai_edge:latest
+docker run -p 8080:8080 --env-file .env -v aiedge-data:/data ghcr.io/yst92/the_ai_edge:latest
 ```
 
 Locally:
