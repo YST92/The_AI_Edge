@@ -1,0 +1,199 @@
+{
+  "name": "The AI Edge — 2. Voice & publish approved episodes",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "b2000000-0000-4000-8000-000000000001",
+      "name": "Every hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-540, 0]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "base-url",
+              "name": "baseUrl",
+              "value": "https://the-ai-edge.example.com",
+              "type": "string"
+            },
+            {
+              "id": "slack-url",
+              "name": "slackWebhookUrl",
+              "value": "https://hooks.slack.com/services/REPLACE/ME",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b2000000-0000-4000-8000-000000000002",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-320, 0]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.baseUrl }}/api/episodes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "b2000000-0000-4000-8000-000000000003",
+      "name": "List episodes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-100, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "The AI Edge API token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "approved-only",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "approved",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b2000000-0000-4000-8000-000000000004",
+      "name": "Only approved",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [120, 0]
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "id": "b2000000-0000-4000-8000-000000000005",
+      "name": "One episode at a time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [340, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.baseUrl }}/api/episodes/{{ $json.id }}/audio",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 3600000
+        }
+      },
+      "id": "b2000000-0000-4000-8000-000000000006",
+      "name": "Stage 5: generate audio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [560, 120],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "The AI Edge API token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.baseUrl }}/api/episodes/{{ $json.id }}/publish",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 900000
+        }
+      },
+      "id": "b2000000-0000-4000-8000-000000000007",
+      "name": "Stage 6: publish",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [780, 120],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "The AI Edge API token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.slackWebhookUrl }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: `*The AI Edge* — episode is live\\n*${$json.script.title}*\\n${$json.publishUrl}` }) }}",
+        "options": {}
+      },
+      "id": "b2000000-0000-4000-8000-000000000008",
+      "name": "Confirm published",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1000, 120]
+    }
+  ],
+  "connections": {
+    "Every hour": {
+      "main": [[{ "node": "Config", "type": "main", "index": 0 }]]
+    },
+    "Config": {
+      "main": [[{ "node": "List episodes", "type": "main", "index": 0 }]]
+    },
+    "List episodes": {
+      "main": [[{ "node": "Only approved", "type": "main", "index": 0 }]]
+    },
+    "Only approved": {
+      "main": [[{ "node": "One episode at a time", "type": "main", "index": 0 }]]
+    },
+    "One episode at a time": {
+      "main": [
+        [],
+        [{ "node": "Stage 5: generate audio", "type": "main", "index": 0 }]
+      ]
+    },
+    "Stage 5: generate audio": {
+      "main": [[{ "node": "Stage 6: publish", "type": "main", "index": 0 }]]
+    },
+    "Stage 6: publish": {
+      "main": [[{ "node": "Confirm published", "type": "main", "index": 0 }]]
+    },
+    "Confirm published": {
+      "main": [[{ "node": "One episode at a time", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

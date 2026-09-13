@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>The AI Edge — Review</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --line: #262d36; --text: #e6edf3;
+    --muted: #8b949e; --accent: #ff7a45; --ok: #3fb950; --warn: #d29922;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.55 -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  header { padding: 18px 24px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 14px; }
+  header h1 { font-size: 17px; margin: 0; letter-spacing: .3px; }
+  header h1 span { color: var(--accent); }
+  header .spacer { flex: 1; }
+  main { display: grid; grid-template-columns: 300px 1fr; min-height: calc(100vh - 61px); }
+  aside { border-right: 1px solid var(--line); padding: 14px; overflow-y: auto; }
+  section { padding: 24px 28px; overflow-y: auto; }
+  button { font: inherit; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 8px 14px; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #17120f; font-weight: 600; }
+  .ep { padding: 10px 12px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
+  .ep:hover, .ep.active { background: var(--panel); border-color: var(--line); }
+  .ep b { display: block; font-weight: 600; font-size: 14px; }
+  .ep small { color: var(--muted); }
+  .badge { display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; padding: 2px 7px; border-radius: 20px; border: 1px solid var(--line); color: var(--muted); }
+  .badge.awaiting_review { color: var(--warn); border-color: var(--warn); }
+  .badge.published { color: var(--ok); border-color: var(--ok); }
+  .badge.failed { color: #f85149; border-color: #f85149; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; margin-bottom: 18px; }
+  .card h3 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
+  .line { display: grid; grid-template-columns: 90px 1fr; gap: 14px; padding: 7px 0; border-top: 1px solid var(--line); }
+  .line:first-of-type { border-top: none; }
+  .line .who { color: var(--accent); font-weight: 600; font-size: 13px; }
+  .line.b .who { color: #58a6ff; }
+  .muted { color: var(--muted); }
+  textarea { width: 100%; min-height: 90px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 10px; font: inherit; resize: vertical; }
+  a { color: #58a6ff; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  ol, ul { margin: 0; padding-left: 20px; }
+  li { margin-bottom: 6px; }
+  audio { width: 100%; margin-top: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>The AI <span>Edge</span> — review desk</h1>
+  <div class="spacer"></div>
+  <span id="status" class="muted"></span>
+  <button id="draft">Draft new episode</button>
+  <button id="refresh">Refresh</button>
+</header>
+<main>
+  <aside id="list"></aside>
+  <section id="detail"><p class="muted">Select an episode.</p></section>
+</main>
+<script>
+const state = { episodes: [], selected: null };
+const el = (id) => document.getElementById(id);
+const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function token() {
+  let value = localStorage.getItem('aiedge_token');
+  if (value === null) {
+    value = prompt('API token (leave empty if the service runs without one)') ?? '';
+    localStorage.setItem('aiedge_token', value);
+  }
+  return value;
+}
+
+async function api(pathname, options = {}) {
+  const headers = { 'content-type': 'application/json', ...(options.headers || {}) };
+  const value = token();
+  if (value) headers.authorization = 'Bearer ' + value;
+  const response = await fetch('/api' + pathname, { ...options, headers });
+  if (response.status === 401) {
+    localStorage.removeItem('aiedge_token');
+    throw new Error('Unauthorized — reload and enter a valid token.');
+  }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || response.statusText);
+  return data;
+}
+
+function busy(text) {
+  el('status').textContent = text;
+  document.querySelectorAll('button').forEach((button) => { button.disabled = Boolean(text); });
+}
+
+async function withBusy(text, task) {
+  busy(text);
+  try { await task(); }
+  catch (error) { alert(error.message); }
+  finally { busy(''); }
+}
+
+function renderList() {
+  el('list').innerHTML = state.episodes.map((episode) => `
+    <div class="ep ${episode.id === state.selected?.id ? 'active' : ''}" data-id="${esc(episode.id)}">
+      <b>${esc(episode.script?.title || episode.research?.theme || episode.id)}</b>
+      <small>${esc(episode.createdAt.slice(0, 10))} · <span class="badge ${esc(episode.status)}">${esc(episode.status.replace('_', ' '))}</span></small>
+    </div>`).join('') || '<p class="muted">No episodes yet.</p>';
+
+  el('list').querySelectorAll('.ep').forEach((node) => {
+    node.onclick = () => select(node.dataset.id);
+  });
+}
+
+function renderDetail() {
+  const episode = state.selected;
+  if (!episode) { el('detail').innerHTML = '<p class="muted">Select an episode.</p>'; return; }
+
+  const script = episode.script;
+  const outline = episode.outline;
+
+  el('detail').innerHTML = `
+    <h2 style="margin:0 0 4px">${esc(script?.title || episode.research?.theme || episode.id)}</h2>
+    <p class="muted" style="margin:0 0 20px">${esc(episode.id)} · revision ${episode.revision} ·
+      <span class="badge ${esc(episode.status)}">${esc(episode.status.replace('_', ' '))}</span>
+      ${script ? ' · ~' + esc(script.estimatedMinutes) + ' min' : ''}</p>
+
+    ${episode.error ? `<div class="card"><h3>Error</h3><p>${esc(episode.error)}</p></div>` : ''}
+
+    ${outline ? `<div class="card">
+      <h3>Outline</h3>
+      <p><b>Thesis.</b> ${esc(outline.thesis)}</p>
+      <ol>${outline.talkingPoints.map((point) => `<li>${esc(point)}</li>`).join('')}</ol>
+      <p style="margin-bottom:0"><b>Takeaway.</b> ${esc(outline.takeaway)}</p>
+    </div>` : ''}
+
+    ${episode.research ? `<div class="card">
+      <h3>Sources</h3>
+      <ul>${episode.research.sources.map((source) => `<li><a href="${esc(source.url)}" target="_blank" rel="noopener noreferrer">${esc(source.title || source.url)}</a><br><span class="muted">${esc(source.summary)}</span></li>`).join('')}</ul>
+    </div>` : ''}
+
+    ${script ? `<div class="card">
+      <h3>Script</h3>
+      ${script.lines.map((line) => `<div class="line ${line.speaker === 'HOST_B' ? 'b' : ''}"><span class="who">${esc(line.speaker)}</span><span>${esc(line.text)}</span></div>`).join('')}
+    </div>` : ''}
+
+    ${episode.audioFile ? `<div class="card"><h3>Audio</h3>
+      <audio id="player" controls></audio>
+      <p class="muted" style="margin-bottom:0">${esc(episode.audioDurationSeconds)} seconds</p></div>` : ''}
+
+    ${episode.publishUrl ? `<div class="card"><h3>Published</h3><a href="${esc(episode.publishUrl)}" target="_blank" rel="noopener noreferrer">${esc(episode.publishUrl)}</a></div>` : ''}
+
+    <div class="card">
+      <h3>Review checkpoint</h3>
+      ${episode.status === 'awaiting_review' ? `
+        <p class="muted">Check the facts, check nothing reads too close to a source, check it sounds like the show.</p>
+        <div class="actions"><button class="primary" id="approve">Approve</button></div>
+        <p class="muted" style="margin:16px 0 6px">Or send it back with notes:</p>
+        <textarea id="notes" placeholder="What needs to change?"></textarea>
+        <div class="actions" style="margin-top:10px"><button id="reject">Reject &amp; rewrite</button></div>`
+        : `<div class="actions">
+            <button id="audio" ${episode.status === 'approved' || episode.status === 'audio_ready' ? '' : 'disabled'}>Generate audio</button>
+            <button class="primary" id="publish" ${episode.status === 'audio_ready' ? '' : 'disabled'}>Publish</button>
+          </div>`}
+    </div>`;
+
+  if (episode.audioFile) loadAudio(episode.id);
+
+  el('approve')?.addEventListener('click', () => withBusy('Approving…', async () => {
+    await api(`/episodes/${episode.id}/approve`, { method: 'POST' });
+    await load(episode.id);
+  }));
+  el('reject')?.addEventListener('click', () => withBusy('Rewriting…', async () => {
+    const notes = el('notes').value.trim();
+    if (!notes) throw new Error('Add some edit notes first.');
+    await api(`/episodes/${episode.id}/reject`, { method: 'POST', body: JSON.stringify({ notes }) });
+    await load(episode.id);
+  }));
+  el('audio')?.addEventListener('click', () => withBusy('Generating audio (this takes a while)…', async () => {
+    await api(`/episodes/${episode.id}/audio`, { method: 'POST' });
+    await load(episode.id);
+  }));
+  el('publish')?.addEventListener('click', () => withBusy('Publishing…', async () => {
+    await api(`/episodes/${episode.id}/publish`, { method: 'POST' });
+    await load(episode.id);
+  }));
+}
+
+async function loadAudio(id) {
+  const headers = {};
+  const value = token();
+  if (value) headers.authorization = 'Bearer ' + value;
+  const response = await fetch(`/api/episodes/${id}/audio.mp3`, { headers });
+  if (!response.ok) return;
+  const player = el('player');
+  if (player) player.src = URL.createObjectURL(await response.blob());
+}
+
+function select(id) {
+  state.selected = state.episodes.find((episode) => episode.id === id) ?? null;
+  history.replaceState(null, '', state.selected ? `/review/${state.selected.id}` : '/');
+  renderList();
+  renderDetail();
+}
+
+async function load(preferredId) {
+  state.episodes = await api('/episodes');
+  const wanted = preferredId ?? state.selected?.id ?? location.pathname.split('/review/')[1];
+  state.selected = state.episodes.find((episode) => episode.id === wanted) ?? state.episodes[0] ?? null;
+  renderList();
+  renderDetail();
+}
+
+el('refresh').onclick = () => withBusy('Loading…', () => load());
+el('draft').onclick = () => withBusy('Researching, outlining and writing — a few minutes…', async () => {
+  const episode = await api('/episodes', { method: 'POST' });
+  await load(episode.id);
+});
+
+withBusy('Loading…', () => load());
+</script>
+</body>
+</html>
