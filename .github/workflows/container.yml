@@ -9,9 +9,6 @@ permissions:
   contents: read
   packages: write
 
-env:
-  IMAGE_NAME: ghcr.io/afasgroep/the_ai_edge
-
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -37,11 +34,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=long
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: |
-            ${{ env.IMAGE_NAME }}:latest
-            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
