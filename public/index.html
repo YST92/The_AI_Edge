@@ -43,6 +43,13 @@
   ol, ul { margin: 0; padding-left: 20px; }
   li { margin-bottom: 6px; }
   audio { width: 100%; margin-top: 12px; }
+  @media (max-width: 860px) {
+    header { flex-wrap: wrap; }
+    main { grid-template-columns: 1fr; }
+    aside { border-right: none; border-bottom: 1px solid var(--line); max-height: 200px; }
+    section { padding: 18px 16px; }
+    .line { grid-template-columns: 1fr; gap: 2px; }
+  }
 </style>
 </head>
 <body>
@@ -85,9 +92,17 @@ async function api(pathname, options = {}) {
   return data;
 }
 
+let lockedButtons = [];
 function busy(text) {
   el('status').textContent = text;
-  document.querySelectorAll('button').forEach((button) => { button.disabled = Boolean(text); });
+  if (text) {
+    lockedButtons = [...document.querySelectorAll('button')].filter((button) => !button.disabled);
+    lockedButtons.forEach((button) => { button.disabled = true; });
+  } else {
+    // Only re-enable what we locked, and only if it survived a re-render.
+    lockedButtons.forEach((button) => { if (button.isConnected) button.disabled = false; });
+    lockedButtons = [];
+  }
 }
 
 async function withBusy(text, task) {
